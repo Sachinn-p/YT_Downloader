@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
-INDEX_FILE = BASE_DIR / "index.html"
+INDEX_FILE = "index.html"
 
 
 class DownloadRequest(BaseModel):
@@ -71,7 +71,8 @@ def list_audio_streams(link: str) -> list[str]:
     return sorted({s.abr for s in auds})
 
 
-@app.get("/", response_class=HTMLResponse, methods=["GET", "HEAD"])
+
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def serve_index():
     if not INDEX_FILE.exists():
         raise HTTPException(status_code=404, detail="index.html not found")
