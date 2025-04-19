@@ -40,7 +40,7 @@ def read_root():
 @app.post("/download_video/")
 async def download_video(data: VideoRequest):
     try:
-        yt = YouTube(data.url)
+        yt = YouTube(data.url, client="web")
 
         # Use specified quality if provided, else get highest resolution
         if data.quality:
@@ -66,7 +66,7 @@ async def download_video(data: VideoRequest):
 @app.post("/download_audio/")
 def download_audio(request: AudioRequest):
     try:
-        yt = YouTube(request.url)
+        yt = YouTube(request.url, client="web")
         audio_streams = yt.streams.filter(only_audio=True)
 
         if request.quality == "high":
@@ -91,7 +91,7 @@ def download_audio(request: AudioRequest):
 @app.get("/list_video_resolutions/")
 def list_video_resolutions(url: str):
     try:
-        yt = YouTube(url)
+        yt = YouTube(url, client="web")
         video_streams = yt.streams.filter(progressive=True, file_extension='mp4')
         resolutions = sorted({stream.resolution for stream in video_streams if stream.resolution})
         return {"resolutions": resolutions}
@@ -101,7 +101,7 @@ def list_video_resolutions(url: str):
 @app.get("/list_audio_streams/")
 def list_audio_streams(url: str):
     try:
-        yt = YouTube(url)
+        yt = YouTube(url, client="web")
         audio_streams = yt.streams.filter(only_audio=True)
         qualities = sorted({stream.abr for stream in audio_streams if stream.abr})
         return {"audio_qualities": qualities}
