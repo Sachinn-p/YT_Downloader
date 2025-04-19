@@ -32,7 +32,7 @@ def make_attachment_header(filename: str) -> str:
 
 # Download video with optional quality
 def download_video(link: str, quality: str | None) -> Path:
-    yt = YouTube(link)
+    yt = YouTube(link, use_po_token=True)
     stream = yt.streams.get_by_resolution(quality) if quality else yt.streams.get_highest_resolution()
     if not stream:
         raise HTTPException(status_code=404, detail="Resolution not found")
@@ -42,7 +42,7 @@ def download_video(link: str, quality: str | None) -> Path:
 
 # Download audio with specified quality
 def download_audio(link: str, quality: str) -> Path:
-    yt = YouTube(link)
+    yt = YouTube(link, use_po_token=True)
     streams = yt.streams.filter(only_audio=True)
     if quality == "high":
         stream = streams.order_by("abr").desc().first()
