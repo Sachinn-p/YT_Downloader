@@ -1,9 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from pytubefix import YouTube
 from typing import Optional
-from pydantic import BaseModel
 import io
 import base64
 
@@ -11,9 +11,7 @@ app = FastAPI()
 
 # CORS setup
 origins = [
-    "*"
-    # "http://localhost:5173",  # React local dev
-    # "https://yourfrontenddomain.com",  # Production (if any)
+    "*"  # Allow all origins (adjust in production)
 ]
 
 app.add_middleware(
@@ -33,14 +31,16 @@ class AudioRequest(BaseModel):
     url: str
     quality: Optional[str] = "high"
 
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the YouTube download API!"}
 
+
 @app.post("/download_video/")
 async def download_video(data: VideoRequest):
     try:
-        yt = YouTube(data.url, client="web")
+        yt = YouTube(data.url, use_po_token=True)
 
         # Use specified quality if provided, else get highest resolution
         if data.quality:
@@ -63,10 +63,11 @@ async def download_video(data: VideoRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
+
 @app.post("/download_audio/")
 def download_audio(request: AudioRequest):
     try:
-        yt = YouTube(request.url, client="web")
+        yt = YouTube(request.url, use_po_token=True)
         audio_streams = yt.streams.filter(only_audio=True)
 
         if request.quality == "high":
@@ -88,20 +89,22 @@ def download_audio(request: AudioRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
+
 @app.get("/list_video_resolutions/")
 def list_video_resolutions(url: str):
     try:
-        yt = YouTube(url, client="web")
+        yt = YouTube(url, use_po_token=True)
         video_streams = yt.streams.filter(progressive=True, file_extension='mp4')
         resolutions = sorted({stream.resolution for stream in video_streams if stream.resolution})
         return {"resolutions": resolutions}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
+
 @app.get("/list_audio_streams/")
 def list_audio_streams(url: str):
     try:
-        yt = YouTube(url, client="web")
+        yt = YouTube(url, use_po_token=True)
         audio_streams = yt.streams.filter(only_audio=True)
         qualities = sorted({stream.abr for stream in audio_streams if stream.abr})
         return {"audio_qualities": qualities}
