@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>YouTube Downloader</title>
+  <style>
+    body { font-family: Arial; display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f4f4f9; }
+    .container { background:white;padding:20px;box-shadow:0 0 10px rgba(0,0,0,0.1);border-radius:8px;width:400px; }
+    h1 { text-align:center; }
+    form { display:flex;flex-direction:column; }
+    input,select,button { margin:10px 0;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:4px; }
+    button { background:#007bff;color:white;cursor:pointer; }
+    button:hover { background:#0056b3; }
+    #result { margin-top:20px;font-weight:bold;color:green; }
+    .quality-group { margin:10px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>YouTube Downloader</h1>
+    <form id="downloadForm">
+      <input type="text" id="url" placeholder="Enter YouTube URL" required>
+
+      <div class="quality-group">
+        <label for="downloadType">Download Type:</label>
+        <select id="downloadType">
+          <option value="video">Video</option>
+          <option value="audio">Audio</option>
+        </select>
+      </div>
+
+      <div class="quality-group" id="videoQualityDiv">
+        <label for="quality">Video Quality:</label>
+        <select id="quality">
+          <option value="highest">Highest (auto)</option>
+        </select>
+      </div>
+
+      <div class="quality-group" id="audioQualityDiv" style="display:none;">
+        <label for="audioQuality">Audio Quality:</label>
+        <select id="audioQuality">
+          <option value="high">High</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
+
+      <button type="submit">Download</button>
+    </form>
+    <div id="result"></div>
+  </div>
+
+  <script>
+    const urlInput = document.getElementById('url');
+    const typeSelect = document.getElementById('downloadType');
+    const videoDiv = document.getElementById('videoQualityDiv');
+    const audioDiv = document.getElementById('audioQualityDiv');
+    const qualitySelect = document.getElementById('quality');
+    const audioSelect = document.getElementById('audioQuality');
+    const resultDiv = document.getElementById('result');
+
+    typeSelect.addEventListener('change', () => {
+      if (typeSelect.value === 'video') {
+        videoDiv.style.display = 'block';
+        audioDiv.style.display = 'none';
+        fetchResolutions();
+      } else {
+        videoDiv.style.display = 'none';
+        audioDiv.style.display = 'block';
+      }
+    });
+
+    urlInput.addEventListener('change', () => {
+      if (typeSelect.value === 'video') fetchResolutions();
+    });
+
+    async function fetchResolutions() {
+      const u = encodeURIComponent(urlInput.value);
+      if (!u) return;
+      try {
+        const res = await fetch(`/video/resolutions?url=${u}`);
+        const data = await res.json();
+        qualitySelect.innerHTML = '<option value="highest">Highest (auto)</option>';
+        data.resolutions.forEach(r => {
+          const opt = document.createElement('option');
+          opt.value = r;
+          opt.textContent = r;
+          qualitySelect.appendChild(opt);
+        });
+      } catch {
+        resultDiv.textContent = 'Error fetching resolutions';
+      }
+    }
+
+    document.getElementById('downloadForm').addEventListener('submit', e => {
+      e.preventDefault();
+      resultDiv.textContent = '';
+      const url = urlInput.value.trim();
+      if (!url) return resultDiv.textContent = 'Please enter a URL';
+
+      let downloadURL;
+      if (typeSelect.value === 'video') {
+        const q = qualitySelect.value;
+        if (!q) return resultDiv.textContent = 'Select a video quality';
+        downloadURL = `/download/video_file?url=${encodeURIComponent(url)}&quality=${encodeURIComponent(q)}`;
+      } else {
+        downloadURL = `/download/audio_file?url=${encodeURIComponent(url)}&audio_quality=${encodeURIComponent(audioSelect.value)}`;
+      }
+
+      window.location.href = downloadURL;
+    });
+  </script>
+</body>
+</html>
