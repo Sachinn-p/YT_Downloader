@@ -21,7 +21,7 @@ async def video_resolutions(url: str):
     Return all progressive MP4 resolutions for a given YouTube URL.
     """
     try:
-        yt = YouTube(url)
+        yt = YouTube(url, use_po_token=True)
         streams = yt.streams.filter(progressive=True, file_extension="mp4")
         resolutions = sorted({s.resolution for s in streams if s.resolution})
         return JSONResponse({"resolutions": resolutions})
@@ -34,7 +34,7 @@ async def audio_qualities(url: str):
     Return all audio bitrates for a given YouTube URL.
     """
     try:
-        yt = YouTube(url)
+        yt = YouTube(url, use_po_token=True)
         streams = yt.streams.filter(only_audio=True)
         bitrates = sorted({s.abr for s in streams if s.abr})
         return JSONResponse({"audio_qualities": bitrates})
@@ -53,7 +53,7 @@ async def download_url(
     Clients should <a download> this URL.
     """
     try:
-        yt = YouTube(url)
+        yt = YouTube(url, use_po_token=True)
         if download_type == "video":
             streams = yt.streams.filter(progressive=True, file_extension="mp4")
             if resolution and resolution != "highest":
