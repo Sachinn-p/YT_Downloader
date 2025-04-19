@@ -1,4 +1,4 @@
 fastapi
-pydantic
-pytubefix
 uvicorn
+pydantic
+git+https://github.com/JuanBindez/pytubefix.git
