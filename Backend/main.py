@@ -1,112 +1,108 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pytubefix import YouTube
-from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse, parse_qs
-import logging
+from pydantic import BaseModel
+import io
+import base64
 
 app = FastAPI()
 
-# Enable basic logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# CORS setup
+origins = [
+    "http://localhost:5173",  # React local dev
+    "https://yourfrontenddomain.com",  # Production (if any)
+]
 
-# Path to your index.html
-INDEX_FILE = Path(__file__).parent / "index.html"
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def clean_url(url: str) -> str:
-    """
-    Sanitize YouTube URLs to remove unnecessary parameters.
-    """
-    parsed = urlparse(url)
-    if parsed.hostname == "youtu.be":
-        return f"https://youtu.be{parsed.path}"
-    elif parsed.hostname and "youtube.com" in parsed.hostname:
-        query = parse_qs(parsed.query)
-        video_id = query.get("v", [""])[0]
-        return f"https://www.youtube.com/watch?v={video_id}"
-    return url
+# Request models
+class VideoRequest(BaseModel):
+    url: str
+    quality: Optional[str] = None
 
-@app.get("/", response_class=HTMLResponse)
-async def serve_index():
-    if not INDEX_FILE.exists():
-        raise HTTPException(404, "index.html not found")
-    return HTMLResponse(INDEX_FILE.read_text(encoding="utf-8"))
+class AudioRequest(BaseModel):
+    url: str
+    quality: Optional[str] = "high"
 
-@app.get("/video/resolutions")
-async def video_resolutions(url: str):
-    """
-    Return all progressive MP4 resolutions for a given YouTube URL.
-    """
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to the YouTube download API!"}
+
+@app.post("/download_video/")
+async def download_video(data: VideoRequest):
     try:
-        yt = YouTube(clean_url(url))
-        streams = yt.streams.filter(progressive=True, file_extension="mp4")
-        resolutions = sorted({s.resolution for s in streams if s.resolution}, reverse=True)
-        return JSONResponse({"resolutions": resolutions})
-    except Exception as e:
-        logger.error(f"Error fetching video resolutions: {e}")
-        raise HTTPException(400, f"Could not fetch resolutions: {e}")
+        yt = YouTube(data.url)
 
-@app.get("/audio/qualities")
-async def audio_qualities(url: str):
-    """
-    Return all audio bitrates for a given YouTube URL.
-    """
-    try:
-        yt = YouTube(clean_url(url))
-        streams = yt.streams.filter(only_audio=True)
-        bitrates = sorted({s.abr for s in streams if s.abr}, reverse=True)
-        return JSONResponse({"audio_qualities": bitrates})
-    except Exception as e:
-        logger.error(f"Error fetching audio qualities: {e}")
-        raise HTTPException(400, f"Could not fetch audio qualities: {e}")
-
-@app.get("/download_url")
-async def download_url(
-    url: str,
-    download_type: str,
-    resolution: Optional[str] = "highest",
-    audio_quality: Optional[str] = "high"
-):
-    """
-    Return a direct-stream URL to the requested media.
-    """
-    try:
-        yt = YouTube(clean_url(url))
-
-        if download_type == "video":
-            streams = yt.streams.filter(progressive=True, file_extension="mp4")
-            if resolution != "highest":
-                stream = streams.filter(res=resolution).first()
-            else:
-                stream = streams.get_highest_resolution()
-
-        elif download_type == "audio":
-            streams = yt.streams.filter(only_audio=True)
-            if audio_quality == "low":
-                stream = streams.order_by("abr").asc().first()
-            else:
-                stream = streams.order_by("abr").desc().first()
-
+        # Use specified quality if provided, else get highest resolution
+        if data.quality:
+            stream = yt.streams.filter(res=data.quality, progressive=True, file_extension='mp4').first()
         else:
-            raise HTTPException(400, "download_type must be 'video' or 'audio'")
+            stream = yt.streams.get_highest_resolution()
 
         if not stream:
-            raise HTTPException(404, "Requested stream not found")
+            raise HTTPException(status_code=404, detail="Stream not found")
 
-        return JSONResponse({"download_url": stream.url})
+        buffer = io.BytesIO()
+        stream.stream_to_buffer(buffer)
+        buffer.seek(0)
 
-    except HTTPException:
-        raise
+        return {
+            "file": base64.b64encode(buffer.read()).decode(),
+            "filename": f"{yt.title}_{data.quality or stream.resolution}.mp4",
+            "mime_type": "video/mp4"
+        }
     except Exception as e:
-        logger.error(f"Error generating download URL: {e}")
-        raise HTTPException(500, f"Error generating download URL: {e}")
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
-# ─── CATCH-ALL ────────────────────────────────────────────────────────────────
-# Place this LAST so it cannot override your API routes!
-@app.get("/{full_path:path}", response_class=HTMLResponse)
-async def catch_all(full_path: str):
-    if not INDEX_FILE.exists():
-        raise HTTPException(404, "index.html not found")
-    return HTMLResponse(INDEX_FILE.read_text(encoding="utf-8"))
+@app.post("/download_audio/")
+def download_audio(request: AudioRequest):
+    try:
+        yt = YouTube(request.url)
+        audio_streams = yt.streams.filter(only_audio=True)
+
+        if request.quality == "high":
+            stream = audio_streams.order_by('abr').desc().first()
+        elif request.quality == "low":
+            stream = audio_streams.order_by('abr').asc().first()
+        else:
+            raise HTTPException(status_code=400, detail="Invalid quality: choose 'high' or 'low'.")
+
+        buffer = io.BytesIO()
+        stream.stream_to_buffer(buffer)
+        buffer.seek(0)
+
+        return {
+            "file": base64.b64encode(buffer.read()).decode(),
+            "filename": f"{yt.title}_{request.quality}.mp3",
+            "mime_type": "audio/mp3"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+
+@app.get("/list_video_resolutions/")
+def list_video_resolutions(url: str):
+    try:
+        yt = YouTube(url)
+        video_streams = yt.streams.filter(progressive=True, file_extension='mp4')
+        resolutions = sorted({stream.resolution for stream in video_streams if stream.resolution})
+        return {"resolutions": resolutions}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+
+@app.get("/list_audio_streams/")
+def list_audio_streams(url: str):
+    try:
+        yt = YouTube(url)
+        audio_streams = yt.streams.filter(only_audio=True)
+        qualities = sorted({stream.abr for stream in audio_streams if stream.abr})
+        return {"audio_qualities": qualities}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
