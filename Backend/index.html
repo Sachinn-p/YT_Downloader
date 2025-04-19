@@ -1,6 +1,8 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <base href="/" />
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>YouTube Downloader</title>
@@ -51,6 +53,7 @@
   </div>
 
   <script>
+    const BASE_API = location.origin;
     const urlEl = document.getElementById("url");
     const typeEl = document.getElementById("downloadType");
     const videoDiv = document.getElementById("videoQualityDiv");
@@ -59,7 +62,7 @@
     const audEl = document.getElementById("audioQuality");
     const result = document.getElementById("result");
 
-    // Toggle UI
+    // Toggle video/audio UI
     typeEl.addEventListener("change", () => {
       if (typeEl.value === "video") {
         videoDiv.style.display = "block";
@@ -71,19 +74,19 @@
       }
     });
 
-    // Fetch as soon as URL changes & type is video
+    // Fetch resolutions when URL is entered
     urlEl.addEventListener("blur", () => {
       if (typeEl.value === "video") fetchResolutions();
     });
 
     async function fetchResolutions() {
+      result.textContent = "";
       const u = encodeURIComponent(urlEl.value.trim());
       if (!u) return;
       try {
-        const res = await fetch(`/video/resolutions?url=${u}`);
-        const { resolutions } = await res.json();
-        // reset dropdown
-        resEl.innerHTML = '<option value="highest">Highest (auto)</option>';
+        const resp = await fetch(`${BASE_API}/video/resolutions?url=${u}`);
+        const { resolutions } = await resp.json();
+        resEl.innerHTML = `<option value="highest">Highest (auto)</option>`;
         resolutions.forEach(r => {
           const o = document.createElement("option");
           o.value = r;
@@ -95,25 +98,26 @@
       }
     }
 
+    // Handle form submit
     document.getElementById("downloadForm").addEventListener("submit", async e => {
       e.preventDefault();
       result.textContent = "";
       const url = urlEl.value.trim();
-      if (!url) return (result.textContent = "Please enter a URL.");
+      if (!url) return result.textContent = "Please enter a URL.";
 
       const params = new URLSearchParams({
-        url: url,
+        url,
         download_type: typeEl.value,
         resolution: resEl.value,
         audio_quality: audEl.value
       });
       try {
-        const res = await fetch(`/download_url?${params.toString()}`);
-        const { download_url } = await res.json();
-        // Trigger client‐side download
+        const resp = await fetch(`${BASE_API}/download_url?${params.toString()}`);
+        const { download_url } = await resp.json();
+        // Trigger download in client browser
         const a = document.createElement("a");
         a.href = download_url;
-        a.download = "";       // browser will infer filename
+        a.download = "";
         document.body.append(a);
         a.click();
         a.remove();
