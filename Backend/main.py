@@ -60,13 +60,13 @@ def download_audio(link: str, quality: str) -> Path:
 def list_video_resolutions(link: str) -> list[str]:
     yt = YouTube(link, use_po_token=True)
     vids = yt.streams.filter(progressive=True, file_extension="mp4")
-    return sorted({s.resolution for s in vids})
+    return sorted({s.resolution for s in vids if s.resolution})
 
 # List available audio bitrates
 def list_audio_streams(link: str) -> list[str]:
     yt = YouTube(link, use_po_token=True)
     auds = yt.streams.filter(only_audio=True)
-    return sorted({s.abr for s in auds})
+    return sorted({s.abr for s in auds if s.abr})
 
 # Serve index.html
 @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
