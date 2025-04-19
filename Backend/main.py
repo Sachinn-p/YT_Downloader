@@ -1,125 +1,78 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pytubefix import YouTube
 from pathlib import Path
+from typing import Optional
 from urllib.parse import quote
+import os
+import traceback
 
 app = FastAPI()
 
-# Set base and download directories
-BASE_DIR = Path(__file__).parent
-DOWNLOAD_DIR = BASE_DIR / "downloads"
-DOWNLOAD_DIR.mkdir(exist_ok=True)
+# CORS middleware (for frontend testing or cross-origin access)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Ensure INDEX_FILE is a Path object
-INDEX_FILE = BASE_DIR / "index.html"
+# Create downloads directory
+DOWNLOAD_DIR = Path("downloads")
+DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# Pydantic model for download requests
-class DownloadRequest(BaseModel):
-    url: str
-    quality: str | None = None       # For video
-    audio_quality: str = "high"      # For audio
+def list_video_resolutions(url: str):
+    yt = YouTube(url)
+    streams = yt.streams.filter(progressive=True, file_extension='mp4')
+    resolutions = sorted({s.resolution for s in streams if s.resolution})
+    return resolutions
 
-# Helper: safe filename encoding for Content-Disposition
-def make_attachment_header(filename: str) -> str:
-    try:
-        filename.encode("latin-1")
-        return f'attachment; filename="{filename}"'
-    except UnicodeEncodeError:
-        quoted = quote(filename, safe="")
-        return f"attachment; filename*=UTF-8''{quoted}"
-
-# Download video with optional quality
-def download_video(link: str, quality: str | None) -> Path:
-    yt = YouTube(link, use_po_token=True)
-    stream = yt.streams.get_by_resolution(quality) if quality else yt.streams.get_highest_resolution()
-    if not stream:
-        raise HTTPException(status_code=404, detail="Resolution not found")
-    out = DOWNLOAD_DIR / stream.default_filename
-    stream.download(output_path=str(DOWNLOAD_DIR))
-    return out
-
-# Download audio with specified quality
-def download_audio(link: str, quality: str) -> Path:
-    yt = YouTube(link, use_po_token=True)
-    streams = yt.streams.filter(only_audio=True)
-    if quality == "high":
-        stream = streams.order_by("abr").desc().first()
-    elif quality == "low":
-        stream = streams.order_by("abr").asc().first()
+def download_video(url: str, quality: Optional[str] = None) -> Path:
+    yt = YouTube(url)
+    if quality:
+        stream = yt.streams.filter(progressive=True, file_extension='mp4', resolution=quality).first()
     else:
-        raise HTTPException(status_code=400, detail="Invalid quality choice")
+        stream = yt.streams.get_highest_resolution()
+
     if not stream:
-        raise HTTPException(status_code=404, detail="Audio stream not found")
-    out = DOWNLOAD_DIR / stream.default_filename
-    stream.download(output_path=str(DOWNLOAD_DIR))
-    return out
+        raise ValueError("Requested quality not available.")
 
-# List available video resolutions
-def list_video_resolutions(link: str) -> list[str]:
-    yt = YouTube(link, use_po_token=True)
-    vids = yt.streams.filter(progressive=True, file_extension="mp4")
-    return sorted({s.resolution for s in vids if s.resolution})
+    file_path = stream.download(output_path=str(DOWNLOAD_DIR))
+    return Path(file_path)
 
-# List available audio bitrates
-def list_audio_streams(link: str) -> list[str]:
-    yt = YouTube(link, use_po_token=True)
-    auds = yt.streams.filter(only_audio=True)
-    return sorted({s.abr for s in auds if s.abr})
+def make_attachment_header(filename: str) -> str:
+    quoted_filename = quote(filename)
+    return f'attachment; filename="{quoted_filename}"; filename*=UTF-8\'\'{quoted_filename}'
 
-# Serve index.html
-@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
-async def serve_index():
-    if not INDEX_FILE.exists():
-        raise HTTPException(status_code=404, detail="index.html not found")
-    return HTMLResponse(content=INDEX_FILE.read_text(encoding="utf-8"))
+@app.get("/")
+def root():
+    return {"message": "YouTube Video Downloader API is running."}
 
-# Endpoint to list available video resolutions
 @app.get("/video/resolutions")
-async def get_video_resolutions(url: str):
+def get_video_resolutions(url: str):
     try:
+        if "?" in url:
+            url = url.split("?")[0]
         return {"resolutions": list_video_resolutions(url)}
     except Exception as e:
+        print("Error in /video/resolutions:\n", traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
-# Endpoint to list available audio qualities
-@app.get("/audio/qualities")
-async def get_audio_qualities(url: str):
-    try:
-        return {"audio_qualities": list_audio_streams(url)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Endpoint to download a video file
 @app.get("/download/video_file")
-async def download_video_file(url: str, quality: str = "highest"):
+def download_video_file(url: str, quality: str = "highest"):
     try:
+        if "?" in url:
+            url = url.split("?")[0]
         actual_quality = None if quality == "highest" else quality
-        path = download_video(url, actual_quality)
-        disposition = make_attachment_header(path.name)
+        file_path = download_video(url, actual_quality)
+        disposition = make_attachment_header(file_path.name)
         return FileResponse(
-            path=str(path),
+            path=str(file_path),
             media_type="application/octet-stream",
+            filename=file_path.name,
             headers={"Content-Disposition": disposition}
         )
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Endpoint to download an audio file
-@app.get("/download/audio_file")
-async def download_audio_file(url: str, audio_quality: str = "high"):
-    try:
-        path = download_audio(url, audio_quality)
-        disposition = make_attachment_header(path.name)
-        return FileResponse(
-            path=str(path),
-            media_type="application/octet-stream",
-            headers={"Content-Disposition": disposition}
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
+        print("Error in /download/video_file:\n", traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
