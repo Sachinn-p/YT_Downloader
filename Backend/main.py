@@ -69,7 +69,7 @@ def list_audio_streams(link: str) -> list[str]:
     return sorted({s.abr for s in auds})
 
 # Serve index.html
-@app.api_route("/", methods=["GET"], response_class=HTMLResponse)
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def serve_index():
     if not INDEX_FILE.exists():
         raise HTTPException(status_code=404, detail="index.html not found")
