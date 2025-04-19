@@ -1,14 +1,32 @@
-# main.py
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from pytubefix import YouTube
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse, parse_qs
+import logging
 
 app = FastAPI()
 
+# Enable basic logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Path to your index.html
 INDEX_FILE = Path(__file__).parent / "index.html"
+
+def clean_url(url: str) -> str:
+    """
+    Sanitize YouTube URLs to remove unnecessary parameters.
+    """
+    parsed = urlparse(url)
+    if parsed.hostname == "youtu.be":
+        return f"https://youtu.be{parsed.path}"
+    elif parsed.hostname and "youtube.com" in parsed.hostname:
+        query = parse_qs(parsed.query)
+        video_id = query.get("v", [""])[0]
+        return f"https://www.youtube.com/watch?v={video_id}"
+    return url
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
@@ -22,11 +40,12 @@ async def video_resolutions(url: str):
     Return all progressive MP4 resolutions for a given YouTube URL.
     """
     try:
-        yt = YouTube(url)
+        yt = YouTube(clean_url(url))
         streams = yt.streams.filter(progressive=True, file_extension="mp4")
         resolutions = sorted({s.resolution for s in streams if s.resolution}, reverse=True)
         return JSONResponse({"resolutions": resolutions})
     except Exception as e:
+        logger.error(f"Error fetching video resolutions: {e}")
         raise HTTPException(400, f"Could not fetch resolutions: {e}")
 
 @app.get("/audio/qualities")
@@ -35,11 +54,12 @@ async def audio_qualities(url: str):
     Return all audio bitrates for a given YouTube URL.
     """
     try:
-        yt = YouTube(url)
+        yt = YouTube(clean_url(url))
         streams = yt.streams.filter(only_audio=True)
         bitrates = sorted({s.abr for s in streams if s.abr}, reverse=True)
         return JSONResponse({"audio_qualities": bitrates})
     except Exception as e:
+        logger.error(f"Error fetching audio qualities: {e}")
         raise HTTPException(400, f"Could not fetch audio qualities: {e}")
 
 @app.get("/download_url")
@@ -50,10 +70,10 @@ async def download_url(
     audio_quality: Optional[str] = "high"
 ):
     """
-    Return a direct‐stream URL to the requested media.
+    Return a direct-stream URL to the requested media.
     """
     try:
-        yt = YouTube(url)
+        yt = YouTube(clean_url(url))
 
         if download_type == "video":
             streams = yt.streams.filter(progressive=True, file_extension="mp4")
@@ -80,9 +100,10 @@ async def download_url(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error generating download URL: {e}")
         raise HTTPException(500, f"Error generating download URL: {e}")
 
-# ─── CATCH‑ALL ────────────────────────────────────────────────────────────────
+# ─── CATCH-ALL ────────────────────────────────────────────────────────────────
 # Place this LAST so it cannot override your API routes!
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def catch_all(full_path: str):
